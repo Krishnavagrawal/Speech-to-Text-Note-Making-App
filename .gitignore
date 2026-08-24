@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Local data / secrets
+.env
+.env.*
+*.json
+credentials/
+notes.db
+*.db
+
+# Node
+node_modules/
+frontend/dist/
+
+# IDE / editor
+.vscode/
+
+# Uploads / generated files
+uploads/
+backend/uploads/
