@@ -28,15 +28,16 @@ function NoteEditor({ noteData, onBack, onSaved }) {
     setCategory(noteData.category || "General");
     setAiResult("");
   }, [noteData]);
-
+  const transcriptionReport = noteData.transcriptionReport || null;
   const saveNote = async () => {
     if (!title.trim()) { setError("Please enter a title."); return; }
     if (!englishText.trim()) { setError("There is no English text to save."); return; }
     setSaving(true); setError("");
     try {
+      const token = localStorage.getItem("smartNotesAuthToken");
       const response = await fetch(`${API_URL}/notes${noteData.id ? `/${noteData.id}` : ""}`, {
         method: noteData.id ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ title: title.trim(), original_transcript: originalText || "No original transcript", english_transcript: englishText, detected_languages: noteData.detectedLanguages.join(",") || "en", summary, key_points: Array.isArray(keyPoints) ? keyPoints.join("\n") : keyPoints, tag: tag.trim(), category, is_favorite: Boolean(noteData.isFavorite) }),
       });
       const data = await response.json();
@@ -50,7 +51,8 @@ function NoteEditor({ noteData, onBack, onSaved }) {
     const endpoints = { summarize: "/ai/summarize", clean: "/ai/clean", keypoints: "/ai/key-points", title: "/ai/title", bullets: "/ai/bullets" };
     setAiLoading(true); setAiAction(action); setAiResult(""); setError("");
     try {
-      const response = await fetch(`${API_URL}${endpoints[action]}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: englishText }) });
+      const token = localStorage.getItem("smartNotesAuthToken");
+      const response = await fetch(`${API_URL}${endpoints[action]}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ text: englishText }) });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "AI request failed.");
       setAiResult(data.result);
@@ -67,7 +69,8 @@ function NoteEditor({ noteData, onBack, onSaved }) {
     if (!englishText.trim()) { setError("There is no text for the AI to process."); return; }
     setAiLoading(true); setAiAction("complete"); setAiResult(""); setError("");
     try {
-      const response = await fetch(`${API_URL}/ai/process-note`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: englishText }) });
+      const token = localStorage.getItem("smartNotesAuthToken");
+      const response = await fetch(`${API_URL}/ai/process-note`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ text: englishText }) });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || data.message || "AI request failed.");
       const result = data.data;
@@ -86,6 +89,15 @@ function NoteEditor({ noteData, onBack, onSaved }) {
       <section className="editor-design-content">
         <input className="big-note-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Give your note a title..." />
         <div className="note-info-row"><span>🌐 {noteData.detectedLanguages.length ? noteData.detectedLanguages.join(" + ") : "Auto"}</span><span>→</span><span>English</span></div>
+        {transcriptionReport && <section className="transcription-report-card">
+          <div className="transcription-report-head"><span className="small-label">TRANSCRIPTION REPORT</span><span className="report-score">{transcriptionReport.accuracy_percent ?? 0}%</span></div>
+          <div className="report-stats">
+            <span><strong>Accuracy</strong><small>{transcriptionReport.accuracy_percent ?? 0}%</small></span>
+            <span><strong>Confidence</strong><small>{transcriptionReport.confidence_score ?? 0}</small></span>
+            <span><strong>Words</strong><small>{transcriptionReport.word_count ?? 0}</small></span>
+            <span><strong>Segments</strong><small>{transcriptionReport.segments_processed ?? 0}</small></span>
+          </div>
+        </section>}
         <div className="paper-editor"><div className="editor-toolbar"><button type="button">Aa</button><button type="button">○</button><button type="button">≡</button><span>16</span></div><textarea value={englishText} onChange={(event) => setEnglishText(event.target.value)} placeholder="Write your notes..." /></div>
         <details className="original-dropdown"><summary>Original Transcript</summary><textarea value={originalText} onChange={(event) => setOriginalText(event.target.value)} /></details>
         <div className="editor-tags"><label className="editor-tag">🏷 <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="Add tag" /></label><select value={category} onChange={(event) => setCategory(event.target.value)} className="editor-tag"><option>General</option><option>Lecture</option><option>College</option><option>Meeting</option><option>Project</option><option>Personal</option></select></div>

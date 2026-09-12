@@ -39,11 +39,13 @@ function UploadAudio({ onBack, onComplete }) {
       const originalTranscript = data.original_transcription ?? data.originalTranscript ?? data.original_text ?? data.transcription ?? "";
       const englishTranscript = data.english_transcription ?? data.englishTranscript ?? data.english_text ?? data.transcription ?? "";
       const detectedLanguages = data.detected_languages ?? data.detectedLanguages ?? [data.language].filter(Boolean);
+      const transcriptionReport = data.transcription_report ?? null;
       onComplete({
         title: data.title || file.name.replace(/\.[^/.]+$/, ""),
         originalTranscript,
         englishTranscript,
         detectedLanguages,
+        transcriptionReport,
       });
     } catch (uploadError) {
       setError(uploadError.message || "Could not process the audio.");

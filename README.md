@@ -105,8 +105,7 @@ speech-to-text-notes/
 ├── main.py
 ├── Phase7A-Functional-Testing.md
 ├── README.md
-├── screenshots/
-└── speech-to-text-notes-project.zip
+└── screenshots/
 ```
 
 ---

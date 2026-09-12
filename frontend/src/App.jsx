@@ -1,4 +1,5 @@
 import { useState } from "react";
+import Login from "./Login";
 import Home from "./components/Home";
 import VoiceNote from "./components/VoiceNote";
 import NoteEditor from "./components/NoteEditor";
@@ -7,11 +8,19 @@ import BottomNav from "./components/BottomNav";
 import UploadAudio from "./components/UploadAudio";
 import "./App.css";
 
-const emptyNote = { title: "", originalTranscript: "", englishTranscript: "", detectedLanguages: [], tag: "", category: "General", isFavorite: false };
+const emptyNote = { title: "", originalTranscript: "", englishTranscript: "", detectedLanguages: [], tag: "", category: "General", isFavorite: false, transcriptionReport: null };
 
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(Boolean(localStorage.getItem("smartNotesAuthToken")));
   const [page, setPage] = useState("home");
   const [noteData, setNoteData] = useState(emptyNote);
+
+  const handleLogout = () => {
+    localStorage.removeItem("smartNotesAuthToken");
+    localStorage.removeItem("smartNotesUser");
+    setIsLoggedIn(false);
+    setPage("home");
+  };
 
   const openTextNote = () => { setNoteData(emptyNote); setPage("editor"); };
   const openAINote = () => { setNoteData(emptyNote); setPage("editor"); };
@@ -22,9 +31,13 @@ function App() {
     setPage("editor");
   };
 
+  if (!isLoggedIn) {
+    return <Login onLogin={() => setIsLoggedIn(true)} />;
+  }
+
   return (
     <div className="app-shell">
-      {page === "home" && <Home onVoiceNote={() => setPage("voice")} onTextNote={openTextNote} onAINote={openAINote} onUpload={openUpload} onNotes={() => setPage("notes")} onOpenNote={openExistingNote} />}
+      {page === "home" && <Home onVoiceNote={() => setPage("voice")} onTextNote={openTextNote} onAINote={openAINote} onUpload={openUpload} onNotes={() => setPage("notes")} onOpenNote={openExistingNote} onLogout={handleLogout} />}
       {page === "voice" && <VoiceNote onBack={() => setPage("home")} onUpload={openUpload} onComplete={handleTranscriptionComplete} />}
       {page === "upload" && <UploadAudio onBack={() => setPage("home")} onComplete={handleTranscriptionComplete} />}
       {page === "editor" && <NoteEditor noteData={noteData} onBack={() => setPage("home")} onSaved={() => setPage("notes")} />}

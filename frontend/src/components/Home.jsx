@@ -1,37 +1,83 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const API_URL = `${window.location.protocol}//${window.location.hostname}:8001`;
 
-function Home({ onVoiceNote, onTextNote, onAINote, onUpload, onNotes, onOpenNote }) {
+function Home({ onVoiceNote, onTextNote, onAINote, onUpload, onNotes, onOpenNote, onLogout }) {
   const [notes, setNotes] = useState([]);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const [showSettings, setShowSettings] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const searchInputRef = useRef(null);
+  const user = JSON.parse(localStorage.getItem("smartNotesUser") || "null");
 
-  useEffect(() => {
-    fetch(`${API_URL}/notes`)
+  const loadNotes = () => {
+    const token = localStorage.getItem("smartNotesAuthToken");
+    setLoadingNotes(true);
+    fetch(`${API_URL}/notes`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((response) => (response.ok ? response.json() : []))
       .then(setNotes)
-      .catch(() => setNotes([]));
-  }, []);
+      .catch(() => setNotes([]))
+      .finally(() => setLoadingNotes(false));
+  };
+
+  useEffect(() => { loadNotes(); }, []);
 
   const filteredNotes = notes.filter((note) => {
     const query = search.trim().toLowerCase();
+    const matchesTitle = (note.title || "").toLowerCase().includes(query);
     const searchableText = [note.title, note.english_transcript, note.original_transcript, note.summary, note.key_points]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
-    const matchesSearch = !query || searchableText.includes(query);
+    const matchesSearch = !query || matchesTitle || searchableText.includes(query);
     const matchesFilter = activeFilter === "all"
       || (activeFilter === "important" && Boolean(note.summary || note.key_points))
       || (activeFilter === "lectures" && /lecture|lesson|class|study|course|learning/.test(searchableText));
     return matchesSearch && matchesFilter;
   });
 
+  const openSearchResult = () => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      searchInputRef.current?.focus();
+      return;
+    }
+    const exactTitleMatch = notes.find((note) => (note.title || "").trim().toLowerCase() === query);
+    const partialMatch = notes.find((note) => (note.title || "").toLowerCase().includes(query))
+      || filteredNotes[0];
+    const match = exactTitleMatch || partialMatch;
+    if (match) onOpenNote(match);
+  };
+
   return (
     <main className="home-screen">
       <header className="home-header">
-        <h1 className="big-title">My<br />Notes</h1>
-        <button className="dots-button" type="button" aria-label="More options">•<br />•<br />•</button>
+        <h1 className="big-title">My Notes</h1>
+        <div className="header-actions">
+          <button className="settings-button" type="button" onClick={() => setShowSettings((visible) => !visible)} aria-label="Open account settings">⚙</button>
+          <button className="dots-button" type="button" onClick={() => setShowMore((visible) => !visible)} aria-label="More options" aria-expanded={showMore}>•<br />•<br />•</button>
+        </div>
+        {showSettings && (
+          <aside className="settings-panel" aria-label="Account settings">
+            <span className="small-label">ACCOUNT</span>
+            <h2>{user?.name || "Smart Notes user"}</h2>
+            <p>{user?.email || "No email available"}</p>
+            <button className="text-button secondary" type="button" onClick={onLogout}>Log out</button>
+          </aside>
+        )}
+        {showMore && (
+          <div className="more-menu" role="menu" aria-label="More options">
+            <button type="button" role="menuitem" onClick={() => { loadNotes(); setShowMore(false); }}>{loadingNotes ? "Refreshing..." : "Refresh notes"}</button>
+            <button type="button" role="menuitem" onClick={() => { onNotes(); setShowMore(false); }}>View all notes</button>
+            <button type="button" role="menuitem" onClick={() => { onLogout(); setShowMore(false); }}>Log out</button>
+          </div>
+        )}
       </header>
 
       <div className="filter-row">
@@ -42,8 +88,8 @@ function Home({ onVoiceNote, onTextNote, onAINote, onUpload, onNotes, onOpenNote
 
       <div className="minimal-search">
         <span aria-hidden="true">⌕</span>
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search notes..." aria-label="Search notes" />
-        <button type="button" onClick={onVoiceNote} aria-label="Record voice">🎙</button>
+        <input ref={searchInputRef} type="search" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); openSearchResult(); } }} placeholder="Search notes by title..." aria-label="Search notes by title or content" />
+        <button type="button" onClick={openSearchResult} aria-label="Search notes">⌕</button>
       </div>
 
       <section className="note-grid" aria-label="Create note">
@@ -54,6 +100,7 @@ function Home({ onVoiceNote, onTextNote, onAINote, onUpload, onNotes, onOpenNote
       </section>
 
       <section className="recent-area">
+        {search.trim() && <p className="search-result-count" aria-live="polite">{filteredNotes.length} {filteredNotes.length === 1 ? "note" : "notes"} found</p>}
         <div className="recent-heading"><div><span className="small-label">YOUR NOTES</span><h2>Recent Notes</h2></div><button className="see-all" type="button" onClick={onNotes}>See all →</button></div>
         <div className="recent-list">
           {filteredNotes.length === 0 ? (

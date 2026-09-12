@@ -25,3 +25,6 @@ frontend/dist/
 # Uploads / generated files
 uploads/
 backend/uploads/
+
+# Project export artifacts
+speech-to-text-notes-project.zip

@@ -98,7 +98,8 @@ function VoiceNote({ onBack, onUpload, onComplete }) {
       const originalTranscript = data.original_transcription ?? data.originalTranscript ?? data.original_text ?? data.transcription ?? "";
       const englishTranscript = data.english_transcription ?? data.englishTranscript ?? data.english_text ?? data.transcription ?? "";
       const languages = data.detected_languages ?? data.detectedLanguages ?? [data.language].filter(Boolean);
-      onComplete({ originalTranscript, englishTranscript, detectedLanguages: languages });
+      const transcriptionReport = data.transcription_report ?? null;
+      onComplete({ originalTranscript, englishTranscript, detectedLanguages: languages, transcriptionReport });
     } catch (transcriptionError) {
       setError(transcriptionError.message || "Could not connect to the backend.");
       setStatus("Error");
