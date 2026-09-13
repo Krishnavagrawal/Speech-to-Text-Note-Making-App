@@ -92,18 +92,22 @@ def generate_otp() -> str:
     return str(secrets.randbelow(900000) + 100000)
 
 
-def send_reset_otp(email: str, otp: str) -> None:
+def _smtp_config() -> tuple[str, int, str, str, str, bool]:
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_username = os.getenv("SMTP_USERNAME") or os.getenv("SMTP_EMAIL")
     smtp_password = (os.getenv("SMTP_PASSWORD") or "").replace(" ", "")
     smtp_from = os.getenv("SMTP_FROM") or smtp_username or ""
     smtp_use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() == "true"
-
     if not smtp_username or not smtp_password or not smtp_from:
         raise RuntimeError(
             "SMTP is not configured. Set SMTP_EMAIL, SMTP_PASSWORD, and SMTP_HOST in backend/.env."
         )
+    return smtp_host, smtp_port, smtp_username, smtp_password, smtp_from, smtp_use_ssl
+
+
+def send_reset_otp(email: str, otp: str) -> None:
+    smtp_host, smtp_port, smtp_username, smtp_password, smtp_from, smtp_use_ssl = _smtp_config()
 
     message = EmailMessage()
     message["Subject"] = "Your Smart Notes password reset code"
@@ -116,6 +120,47 @@ def send_reset_otp(email: str, otp: str) -> None:
         f"<html><body><h2>Smart Notes password reset</h2>"
         f"<p>Your password reset code is:</p><h1>{html.escape(otp)}</h1>"
         f"<p>This code expires in 10 minutes. If you did not request this, ignore this email.</p>"
+        f"</body></html>",
+        subtype="html",
+    )
+
+    tls_context = ssl.create_default_context()
+    if smtp_use_ssl:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=tls_context, timeout=20) as server:
+            server.login(smtp_username, smtp_password)
+            server.send_message(message)
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+            server.ehlo()
+            server.starttls(context=tls_context)
+            server.ehlo()
+            server.login(smtp_username, smtp_password)
+            server.send_message(message)
+
+
+def send_welcome_email(name: str, email: str) -> None:
+    smtp_host, smtp_port, smtp_username, smtp_password, smtp_from, smtp_use_ssl = _smtp_config()
+
+    message = EmailMessage()
+    message["Subject"] = "🎙️ Welcome to Smart Notes!"
+    message["From"] = smtp_from
+    message["To"] = email
+    message.set_content(
+        f"Hi {name},\n\n"
+        f"Thank you for joining Smart Notes! 🎉\n\n"
+        f"Your account has been successfully created. You can now convert your voice into organized notes, generate AI summaries and key points, and work with Hindi, English, and mixed-language speech.\n\n"
+        f"We're happy to have you with us!\n\n"
+        f"Happy Note Taking! 📝\n\n"
+        f"Smart Notes Team"
+    )
+    message.add_alternative(
+        f"<html><body><h2>🎙️ Welcome to Smart Notes!</h2>"
+        f"<p>Hi {html.escape(name)},</p>"
+        f"<p>Thank you for joining Smart Notes! 🎉</p>"
+        f"<p>Your account has been successfully created. You can now convert your voice into organized notes, generate AI summaries and key points, and work with Hindi, English, and mixed-language speech.</p>"
+        f"<p>We're happy to have you with us!</p>"
+        f"<p>Happy Note Taking! 📝</p>"
+        f"<p><strong>Smart Notes Team</strong></p>"
         f"</body></html>",
         subtype="html",
     )
@@ -161,10 +206,11 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     normalized_email = user.email.lower().strip()
     existing_user = db.query(User).filter(User.email == normalized_email).first()
     if existing_user:
-        return login_user(UserLogin(email=normalized_email, password=user.password), db)
+        raise HTTPException(status_code=409, detail="Account already exists. Please login.")
 
+    full_name = user.name.strip()
     new_user = User(
-        name=user.name.strip(),
+        name=full_name,
         email=normalized_email,
         password_hash=hash_password(user.password),
     )
@@ -173,7 +219,16 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
     token = create_token()
     AUTH_TOKENS[token] = new_user.id
-    return AuthTokenResponse(token=token, user=UserResponse.model_validate(new_user))
+
+    try:
+        send_welcome_email(full_name, new_user.email)
+        return AuthTokenResponse(token=token, user=UserResponse.model_validate(new_user))
+    except (OSError, smtplib.SMTPException, RuntimeError, ValueError):
+        return AuthTokenResponse(
+            token=token,
+            user=UserResponse.model_validate(new_user),
+            message="Account created successfully. Welcome email could not be sent right now.",
+        )
 
 
 @app.post("/auth/login", response_model=AuthTokenResponse)
@@ -194,23 +249,16 @@ def forgot_password(payload: PasswordResetRequest, db: Session = Depends(get_db)
     if user is None:
         return {"success": True, "message": "If an account exists, a reset code has been sent."}
 
-    otp = generate_otp()
-    user.otp_code = otp
-    user.otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
     try:
+        otp = generate_otp()
+        user.otp_code = otp
+        user.otp_expires_at = datetime.utcnow() + timedelta(minutes=10)
         send_reset_otp(user.email, otp)
         db.commit()
         return {"success": True, "message": "Reset code sent to your email."}
-    except (OSError, smtplib.SMTPException, RuntimeError, ValueError) as error:
-        # Keep the OTP in the database for the normal reset flow, but do not break the
-        # app when SMTP is unavailable. Return the OTP in a development/debug-friendly response.
-        db.commit()
-        return {
-            "success": True,
-            "message": "SMTP delivery failed. Local reset OTP is available for development testing.",
-            "email_delivery_failed": True,
-            "otp": otp,
-        }
+    except (OSError, smtplib.SMTPException, RuntimeError, ValueError):
+        db.rollback()
+        return {"success": True, "message": "If an account exists, a reset code has been sent."}
 
 
 @app.post("/auth/reset-password")
@@ -248,11 +296,19 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5175",
+        "http://localhost:5176",
+        "http://localhost:5177",
+        "http://localhost:5178",
+        "http://localhost:5179",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
+        "http://127.0.0.1:5176",
+        "http://127.0.0.1:5177",
+        "http://127.0.0.1:5178",
+        "http://127.0.0.1:5179",
     ],
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):517[3-5]",
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):517[3-9]",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

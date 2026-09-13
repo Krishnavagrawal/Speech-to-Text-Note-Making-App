@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 import pytest
 
@@ -7,7 +9,7 @@ from services.transcription_report import build_transcription_report
 
 def test_register_and_login_flow():
     client = TestClient(app)
-    email = "auth-test@example.com"
+    email = f"auth-test-{uuid4().hex}@example.com"
     payload = {
         "name": "Test User",
         "email": email,
@@ -31,11 +33,48 @@ def test_register_and_login_flow():
     assert notes_response.status_code == 200, notes_response.text
 
 
-def test_forgot_password_returns_local_otp_when_email_send_fails(monkeypatch):
+def test_register_duplicate_email_returns_account_exists_message():
     client = TestClient(app)
-    email = "local-otp@example.com"
+    email = f"duplicate-{uuid4().hex}@example.com"
+    payload = {
+        "name": "Duplicate User",
+        "email": email,
+        "password": "StrongPass123!",
+    }
+
+    first = client.post("/auth/register", json=payload)
+    assert first.status_code == 201, first.text
+
+    second = client.post("/auth/register", json=payload)
+    assert second.status_code == 409, second.text
+    assert second.json()["detail"] == "Account already exists. Please login."
+
+
+def test_register_welcome_mail_failure_is_non_blocking(monkeypatch):
+    client = TestClient(app)
+    email = f"welcome-failure-{uuid4().hex}@example.com"
+    payload = {
+        "name": "Welcome Failure User",
+        "email": email,
+        "password": "StrongPass123!",
+    }
+
+    def raise_welcome_failure(_name: str, _email: str):
+        raise RuntimeError("SMTP unavailable")
+
+    monkeypatch.setattr("main.send_welcome_email", raise_welcome_failure)
+
+    response = client.post("/auth/register", json=payload)
+    assert response.status_code == 201, response.text
+    assert response.json()["user"]["email"] == email
+    assert response.json()["message"] == "Account created successfully. Welcome email could not be sent right now."
+
+
+def test_forgot_password_returns_generic_message_when_email_send_fails(monkeypatch):
+    client = TestClient(app)
+    email = f"secure-otp-{uuid4().hex}@example.com"
     register_payload = {
-        "name": "Local OTP User",
+        "name": "Secure OTP User",
         "email": email,
         "password": "StrongPass123!",
     }
@@ -52,9 +91,9 @@ def test_forgot_password_returns_local_otp_when_email_send_fails(monkeypatch):
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["success"] is True
-    assert payload["email_delivery_failed"] is True
-    assert "otp" in payload
-    assert len(payload["otp"]) == 6
+    assert payload["message"] == "If an account exists, a reset code has been sent."
+    assert "email_delivery_failed" not in payload
+    assert "otp" not in payload
 
 
 def test_build_transcription_report_produces_confidence_and_accuracy():

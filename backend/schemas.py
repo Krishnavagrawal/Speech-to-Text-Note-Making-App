@@ -25,6 +25,7 @@ class UserResponse(BaseModel):
 class AuthTokenResponse(BaseModel):
     token: str
     user: UserResponse
+    message: str | None = None
 
 
 class PasswordResetRequest(BaseModel):

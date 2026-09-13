@@ -101,12 +101,7 @@ export default function Login({ onLogin }) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(getApiError(data, "Unable to send reset code"));
-      if (data?.email_delivery_failed && data?.otp) {
-        setSuccessMessage(`${data.message || "Reset code sent."} OTP: ${data.otp}`);
-        setMode("reset");
-      } else {
-        setSuccessMessage(data.message || "Reset code sent.");
-      }
+      setSuccessMessage(data.message || "If an account exists, a reset code has been sent.");
     } catch (resetError) {
       setError(resetError.message || "Reset failed.");
     } finally {
