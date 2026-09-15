@@ -10,8 +10,9 @@ class MultilingualTranscriber:
         """Transcribe browser recordings robustly.
 
         VAD can occasionally discard an entire short/quiet MediaRecorder WebM file.
-        If that happens, retry the exact same audio without VAD instead of returning
-        an empty transcript.
+        If that happens, retry the exact same audio without VAD. If Whisper still
+        finds no speech, raise an explicit error instead of returning a misleading
+        successful 0-word transcript.
         """
         common_options = {
             "task": "transcribe",
@@ -38,6 +39,12 @@ class MultilingualTranscriber:
         if not results:
             segments, info = run_transcription(use_vad=False)
             results = self._collect_segments(segments)
+
+        if not results:
+            raise RuntimeError(
+                "No speech was detected in the recording. "
+                "Please record again and speak clearly for at least 2 seconds."
+            )
 
         return {"detected_language": info.language, "segments": results}
 
