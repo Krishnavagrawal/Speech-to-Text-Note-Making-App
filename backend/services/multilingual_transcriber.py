@@ -1,4 +1,5 @@
 from typing import Any
+import os
 
 
 class MultilingualTranscriber:
@@ -6,29 +7,58 @@ class MultilingualTranscriber:
         self.model = model
 
     def transcribe(self, audio_path: str, language: str | None = None) -> dict[str, Any]:
-        segments, info = self.model.transcribe(
-            audio_path,
-            task="transcribe",
-            language=language,
-            beam_size=int(__import__("os").getenv("WHISPER_BEAM_SIZE", "1")),
-            vad_filter=True,
-            condition_on_previous_text=False,
-            word_timestamps=False,
-            temperature=0.0,
-        )
+        """Transcribe browser recordings robustly.
 
+        VAD can occasionally discard an entire short/quiet MediaRecorder WebM file.
+        If that happens, retry the exact same audio without VAD instead of returning
+        an empty transcript.
+        """
+        common_options = {
+            "task": "transcribe",
+            "language": language,
+            "beam_size": int(os.getenv("WHISPER_BEAM_SIZE", "5")),
+            "condition_on_previous_text": False,
+            "word_timestamps": False,
+            "temperature": 0.0,
+        }
+
+        def run_transcription(use_vad: bool):
+            options = dict(common_options)
+            options["vad_filter"] = use_vad
+            if use_vad:
+                options["vad_parameters"] = {
+                    "min_silence_duration_ms": 500,
+                    "speech_pad_ms": 400,
+                }
+            return self.model.transcribe(audio_path, **options)
+
+        segments, info = run_transcription(use_vad=True)
+        results = self._collect_segments(segments)
+
+        if not results:
+            segments, info = run_transcription(use_vad=False)
+            results = self._collect_segments(segments)
+
+        return {"detected_language": info.language, "segments": results}
+
+    @staticmethod
+    def _collect_segments(segments) -> list[dict[str, Any]]:
         results = []
         for segment in segments:
             text = segment.text.strip()
             if text:
+                avg_logprob = getattr(segment, "avg_logprob", None)
+                confidence = 0.85
+                if avg_logprob is not None:
+                    confidence = max(0.0, min(1.0, 1.0 + float(avg_logprob) / 5.0))
                 results.append({
                     "start": segment.start,
                     "end": segment.end,
                     "text": text,
-                    "language": self.detect_segment_language(text),
+                    "language": MultilingualTranscriber.detect_segment_language(text),
+                    "confidence": confidence,
                 })
-
-        return {"detected_language": info.language, "segments": results}
+        return results
 
     @staticmethod
     def detect_segment_language(text: str) -> str:
